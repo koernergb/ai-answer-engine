@@ -1,32 +1,41 @@
-// TODO: Implement the code here to add rate limiting with Redis
-// Refer to the Next.js Docs: https://nextjs.org/docs/app/building-your-application/routing/middleware
-// Refer to Redis docs on Rate Limiting: https://upstash.com/docs/redis/sdks/ratelimit-ts/algorithms
-
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { Redis } from '@upstash/redis';
+
+// Initialize Redis client
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!
+});
 
 export async function middleware(request: NextRequest) {
   try {
+    // Check if the request is to the /api/share endpoint
+    if (request.url.includes("/api/share")) {
+      // Pass the request through to the /api/share endpoint
+      return NextResponse.next();
+    }
 
-    const response = NextResponse.next();
+    // Implement rate limiting with Redis
+    const clientIP = request.headers.get('x-forwarded-for') || request.ip;
+    const rateLimit = await redis.get(`rate-limit:${clientIP}`);
 
-    return response;
+    if (rateLimit && parseInt(rateLimit) >= 10) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    }
 
-
-
+    await redis.incr(`rate-limit:${clientIP}`, { ex: 60 }); // Reset rate limit every minute
+    
+    return NextResponse.next();
   } catch (error) {
-
-
+    console.error("Middleware error:", error);
+    return NextResponse.next();
   }
 }
 
-
-// Configure which paths the middleware runs on
+// Configure which paths the middleware runs on, excluding the /api/share endpoint
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except static files and images
-     */
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!_next/static|_next/image|favicon.ico|/api/share).*)",
   ],
 };
